@@ -1,0 +1,205 @@
+{
+  "name": "02_STOCK_AI_Photos_v2025",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "hours": 6
+            }
+          ]
+        },
+        "options": {
+          "timezone": "America/La_Paz"
+        }
+      },
+      "id": "trigger",
+      "name": "Cada 6h",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generar prompts para imágenes de stock\nconst keywords = ['minimalist icon', 'pastel gradient', '3D design', 'modern illustration', 'abstract art'];\nconst randomKeyword = keywords[Math.floor(Math.random() * keywords.length)];\n\nreturn [{\n  prompt: `${randomKeyword}, isolated, 4K, trending on 2025, professional quality`,\n  keyword: randomKeyword,\n  timestamp: new Date().toISOString()\n}];"
+      },
+      "id": "prompt_gen",
+      "name": "Generate Prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "generateImage",
+        "model": "stable-diffusion-3-5-large",
+        "prompt": "={{$json.prompt}}",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "size": "1024x1024"
+      },
+      "id": "sd35",
+      "name": "SD 3.5 Generate",
+      "type": "n8n-nodes-base.stabilityAi",
+      "position": [
+        500,
+        200
+      ],
+      "credentials": {
+        "stabilityAiApi": "Stability-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "uploadAI",
+        "file": "={{$json.data[0].url}}",
+        "title": "={{$json.keyword}}",
+        "keywords": "={{$json.keyword}}, 3d, icon, pastel, 2025, stock photo",
+        "category": "Illustrations",
+        "aiGenerated": true
+      },
+      "id": "shutter",
+      "name": "Shutterstock Upload",
+      "type": "n8n-nodes-base.shutterstock",
+      "position": [
+        700,
+        200
+      ],
+      "credentials": {
+        "shutterstockApi": "Shutter-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "{{$env.GOOGLE_SHEET_ID}}",
+        "range": "Stock!A:D",
+        "data": [
+          [
+            "={{$json.keyword}}",
+            "={{$json.data[0].id}}",
+            "={{$now.toISOString()}}",
+            "0.45"
+          ]
+        ]
+      },
+      "id": "log_stock",
+      "name": "Log to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        900,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": "Google-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "url": "{{$env.WEBHOOK_DASHBOARD_URL}}/api/webhooks/n8n",
+        "httpMethod": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{$env.WEBHOOK_SECRET}}"
+        },
+        "body": {
+          "workflowId": "02_STOCK_AI",
+          "status": "completed",
+          "earnings": 0.45,
+          "timestamp": "={{$now.toISOString()}}",
+          "metadata": {
+            "keyword": "={{$json.keyword}}",
+            "imageUrl": "={{$json.data[0].url}}",
+            "platform": "shutterstock"
+          }
+        }
+      },
+      "id": "dashboardWebhook",
+      "name": "Send to Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1100,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "trigger": {
+      "main": [
+        [
+          {
+            "node": "prompt_gen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prompt_gen": {
+      "main": [
+        [
+          {
+            "node": "sd35",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sd35": {
+      "main": [
+        [
+          {
+            "node": "shutter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "shutter": {
+      "main": [
+        [
+          {
+            "node": "log_stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "log_stock": {
+      "main": [
+        [
+          {
+            "node": "dashboardWebhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "version": "2025.11.13",
+    "description": "Stock AI Photos - Genera imágenes de stock con SD 3.5 y las sube a Shutterstock",
+    "credentials": [
+      "Stability-Diego",
+      "Shutter-Diego",
+      "Google-Diego"
+    ],
+    "environment_variables": [
+      "GOOGLE_SHEET_ID",
+      "WEBHOOK_DASHBOARD_URL",
+      "WEBHOOK_SECRET"
+    ],
+    "earnings_per_execution": "$0.35 - $0.60",
+    "execution_frequency": "Every 6 hours"
+  }
+}

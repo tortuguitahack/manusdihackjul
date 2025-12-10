@@ -1,0 +1,228 @@
+{
+  "name": "03_Notion_Gumroad_Stripe_v2025",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "hours": 12
+            }
+          ]
+        },
+        "options": {
+          "timezone": "America/La_Paz"
+        }
+      },
+      "id": "trigger",
+      "name": "Cada 12h",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generar ideas de templates\nconst templates = [\n  { name: 'Budget Tracker Bolivia 2025', price: 9.99, niche: 'Finance', description: 'Plantilla de presupuesto personal para Bolivia' },\n  { name: 'Content Calendar Pro', price: 14.99, niche: 'Marketing', description: 'Calendario de contenido para redes sociales' },\n  { name: 'Project Management Hub', price: 12.99, niche: 'Productivity', description: 'Sistema completo de gestión de proyectos' }\n];\n\nconst template = templates[Math.floor(Math.random() * templates.length)];\nreturn [template];"
+      },
+      "id": "idea_gen",
+      "name": "Generate Template Idea",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "duplicatePage",
+        "pageId": "{{$env.NOTION_TEMPLATE_ID}}",
+        "title": "={{$json.name}}"
+      },
+      "id": "notion_dup",
+      "name": "Duplicate Notion Page",
+      "type": "n8n-nodes-base.notion",
+      "position": [
+        500,
+        200
+      ],
+      "credentials": {
+        "notionApi": "Notion-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Crear URL compartible de Notion\nconst shareUrl = `https://notion.so/${$json.id.replace(/-/g, '')}`;\nreturn [{ ...items[0].json, shareUrl }];"
+      },
+      "id": "create_share",
+      "name": "Create Share URL",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        700,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "name": "={{$json.name}}",
+        "price": "={{$json.price}}",
+        "currency": "USD",
+        "description": "={{$json.description}}",
+        "file": "={{$json.shareUrl}}"
+      },
+      "id": "gumroad",
+      "name": "Gumroad Create Product",
+      "type": "n8n-nodes-base.gumroad",
+      "position": [
+        900,
+        200
+      ],
+      "credentials": {
+        "gumroadApi": "Gumroad-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "{{$env.GOOGLE_SHEET_ID}}",
+        "range": "Notion!A:E",
+        "data": [
+          [
+            "={{$json.name}}",
+            "={{$json.id}}",
+            "={{$json.price}}",
+            "={{$now.toISOString()}}",
+            "0"
+          ]
+        ]
+      },
+      "id": "log_notion",
+      "name": "Log to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        1100,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": "Google-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "url": "{{$env.WEBHOOK_DASHBOARD_URL}}/api/webhooks/n8n",
+        "httpMethod": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{$env.WEBHOOK_SECRET}}"
+        },
+        "body": {
+          "workflowId": "03_Notion_Gumroad",
+          "status": "completed",
+          "earnings": 0,
+          "timestamp": "={{$now.toISOString()}}",
+          "metadata": {
+            "templateName": "={{$json.name}}",
+            "price": "={{$json.price}}",
+            "notionUrl": "={{$json.shareUrl}}",
+            "gumroadId": "={{$json.gumroad_id}}"
+          }
+        }
+      },
+      "id": "dashboardWebhook",
+      "name": "Send to Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1300,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "trigger": {
+      "main": [
+        [
+          {
+            "node": "idea_gen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "idea_gen": {
+      "main": [
+        [
+          {
+            "node": "notion_dup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "notion_dup": {
+      "main": [
+        [
+          {
+            "node": "create_share",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_share": {
+      "main": [
+        [
+          {
+            "node": "gumroad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gumroad": {
+      "main": [
+        [
+          {
+            "node": "log_notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "log_notion": {
+      "main": [
+        [
+          {
+            "node": "dashboardWebhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "version": "2025.11.13",
+    "description": "Notion Templates + Gumroad - Crea y vende plantillas de Notion a través de Gumroad",
+    "credentials": [
+      "Notion-Diego",
+      "Gumroad-Diego",
+      "Google-Diego"
+    ],
+    "environment_variables": [
+      "NOTION_TEMPLATE_ID",
+      "GOOGLE_SHEET_ID",
+      "WEBHOOK_DASHBOARD_URL",
+      "WEBHOOK_SECRET"
+    ],
+    "earnings_per_execution": "$5 - $15 (per sale)",
+    "execution_frequency": "Every 12 hours"
+  }
+}

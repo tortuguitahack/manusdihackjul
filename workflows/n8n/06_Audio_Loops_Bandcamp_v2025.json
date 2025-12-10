@@ -1,0 +1,71 @@
+{
+  "name": "06_Audio_Loops_Bandcamp_v2025",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "hours": 12
+            }
+          ]
+        },
+        "options": {
+          "timezone": "America/La_Paz"
+        }
+      },
+      "id": "trigger",
+      "name": "Cada 12h",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generar especificaciones de loops de audio\nconst genres = ['Lo-fi Hip Hop', 'Ambient', 'Synthwave', 'Cinematic', 'Chill Beats'];\nconst tempos = [80, 90, 100, 120, 140];\nconst keys = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];\n\nconst genre = genres[Math.floor(Math.random() * genres.length)];\nconst tempo = tempos[Math.floor(Math.random() * tempos.length)];\nconst key = keys[Math.floor(Math.random() * keys.length)];\n\nreturn [{\n  name: `${genre} Loop ${tempo}BPM ${key}`,\n  genre,\n  tempo,\n  key,\n  duration: 30,\n  format: 'wav',\n  price: 4.99\n}];"
+      },
+      "id": "loop_spec",
+      "name": "Generate Loop Spec",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "model": "text-to-audio",
+        "prompt": "{{$json.genre}} loop, {{$json.tempo}} BPM, {{$json.key}} key, {{$json.duration}} seconds, royalty-free, high quality",
+        "duration": "={{$json.duration}}"
+      },
+      "id": "audio_gen",
+      "name": "Generate Audio Loop",
+      "type": "n8n-nodes-base.elevenlabs",
+      "position": [
+        500,
+        200
+      ],
+      "credentials": {
+        "elevenLabsApi": "ElevenLabs-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Procesar y normalizar audio\nconst audioUrl = items[0].json.audio;\nconst fileName = `${items[0].json.name.replace(/\\s+/g, '_')}.wav`;\n\nreturn [{\n  ...items[0].json,\n  audioUrl,\n  fileName,\n  waveform: 'generated'\n}];"
+      },
+      "id": "process_audio",
+      "name": "Process Audio",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        700,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "uploadTrack",
+        "title": "={{$json.name}}",
+        "artist": "Diego AI Music",\n        \"description\": \"{{$json.genre}} loop - {{$json.tempo}}BPM {{$json.key}} key\",\n        \"audioFile\": \"={{$json.audioUrl}}\",\n        \"price\": \"={{$json.price}}\",\n        \"tags\": \"={{$json.genre}}, loop, royalty-free, {{$json.tempo}}bpm\"\n      },\n      \"id\": \"bandcamp\",\n      \"name\": \"Bandcamp Upload\",\n      \"type\": \"n8n-nodes-base.bandcamp\",\n      \"position\": [\n        900,\n        200\n      ],\n      \"credentials\": {\n        \"bandcampApi\": \"Bandcamp-Diego\"\n      }\n    },\n    {\n      \"parameters\": {\n        \"operation\": \"append\",\n        \"sheetId\": \"{{$env.GOOGLE_SHEET_ID}}\",\n        \"range\": \"Audio!A:F\",\n        \"data\": [\n          [\n            \"={{$json.name}}\",\n            \"={{$json.genre}}\",\n            \"={{$json.tempo}}\",\n            \"={{$json.bandcamp_url}}\",\n            \"={{$now.toISOString()}}\",\n            \"0\"\n          ]\n        ]\n      },\n      \"id\": \"log_audio\",\n      \"name\": \"Log to Sheet\",\n      \"type\": \"n8n-nodes-base.googleSheets\",\n      \"position\": [\n        1100,\n        200\n      ],\n      \"credentials\": {\n        \"googleSheetsOAuth2Api\": \"Google-Diego\"\n      }\n    },\n    {\n      \"parameters\": {\n        \"url\": \"{{$env.WEBHOOK_DASHBOARD_URL}}/api/webhooks/n8n\",\n        \"httpMethod\": \"POST\",\n        \"headers\": {\n          \"Content-Type\": \"application/json\",\n          \"Authorization\": \"Bearer {{$env.WEBHOOK_SECRET}}\"\n        },\n        \"body\": {\n          \"workflowId\": \"06_Audio_Loops\",\n          \"status\": \"completed\",\n          \"earnings\": 0,\n          \"timestamp\": \"={{$now.toISOString()}}\",\n          \"metadata\": {\n            \"loopName\": \"={{$json.name}}\",\n            \"genre\": \"={{$json.genre}}\",\n            \"tempo\": \"={{$json.tempo}}\",\n            \"price\": \"={{$json.price}}\",\n            \"bandcampUrl\": \"={{$json.bandcamp_url}}\"\n          }\n        }\n      },\n      \"id\": \"dashboardWebhook\",\n      \"name\": \"Send to Dashboard\",\n      \"type\": \"n8n-nodes-base.httpRequest\",\n      \"position\": [\n        1300,\n        200\n      ]\n    }\n  ],\n  \"connections\": {\n    \"trigger\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"loop_spec\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"loop_spec\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"audio_gen\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"audio_gen\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"process_audio\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"process_audio\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"bandcamp\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"bandcamp\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"log_audio\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"log_audio\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"dashboardWebhook\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    }\n  },\n  \"meta\": {\n    \"version\": \"2025.11.13\",\n    \"description\": \"Audio Loops Bandcamp - Genera y vende loops de audio en Bandcamp\",\n    \"credentials\": [\n      \"ElevenLabs-Diego\",\n      \"Bandcamp-Diego\",\n      \"Google-Diego\"\n    ],\n    \"environment_variables\": [\n      \"GOOGLE_SHEET_ID\",\n      \"WEBHOOK_DASHBOARD_URL\",\n      \"WEBHOOK_SECRET\"\n    ],\n    \"earnings_per_execution\": \"$2 - $10 (per sale)\",\n    \"execution_frequency\": \"Every 12 hours\"\n  }\n}

@@ -1,0 +1,214 @@
+{
+  "name": "07_Newsletter_Substack_v2025",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "days": 7
+            }
+          ]
+        },
+        "options": {
+          "timezone": "America/La_Paz"
+        }
+      },
+      "id": "trigger",
+      "name": "Weekly Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-latest",
+        "messages": [
+          {
+            "role": "system",
+            "value": "Eres un escritor de newsletter experto. Escribe un artículo semanal sobre tendencias de automatización, criptomonedas y tecnología. Devuelve JSON: {\"title\":\"max 80 chars\",\"intro\":\"max 200 chars\",\"sections\":[{\"heading\":\"string\",\"content\":\"string\"}],\"cta\":\"string\"}"
+          },
+          {
+            "role": "user",
+            "value": "Escribe un newsletter sobre las últimas tendencias en automatización y AI para la semana del {{$now.toISOString()}}"
+          }
+        ],
+        "options": {
+          "temperature": 0.8
+        }
+      },
+      "id": "gpt4o",
+      "name": "GPT-4o Newsletter",
+      "type": "n8n-nodes-base.openAi",
+      "position": [
+        300,
+        200
+      ],
+      "credentials": {
+        "openAiApi": "OpenAI-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parsear respuesta de GPT\nconst content = JSON.parse($json.choices[0].message.content);\nreturn [{\n  title: content.title,\n  intro: content.intro,\n  sections: content.sections,\n  cta: content.cta,\n  htmlContent: `<h1>${content.title}</h1><p>${content.intro}</p>${content.sections.map(s => `<h2>${s.heading}</h2><p>${s.content}</p>`).join('')}<p>${content.cta}</p>`\n}];"
+      },
+      "id": "parse_content",
+      "name": "Parse Content",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        500,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "publish",
+        "title": "={{$json.title}}",
+        "content": "={{$json.htmlContent}}",
+        "type": "newsletter",
+        "publish": true
+      },
+      "id": "substack",
+      "name": "Substack Publish",
+      "type": "n8n-nodes-base.substack",
+      "position": [
+        700,
+        200
+      ],
+      "credentials": {
+        "substackApi": "Substack-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "{{$env.GOOGLE_SHEET_ID}}",
+        "range": "Newsletter!A:E",
+        "data": [
+          [
+            "={{$json.title}}",
+            "={{$json.substack_url}}",
+            "={{$now.toISOString()}}",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      "id": "log_newsletter",
+      "name": "Log to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        900,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": "Google-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "url": "{{$env.WEBHOOK_DASHBOARD_URL}}/api/webhooks/n8n",
+        "httpMethod": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{$env.WEBHOOK_SECRET}}"
+        },
+        "body": {
+          "workflowId": "07_Newsletter",
+          "status": "completed",
+          "earnings": 0,
+          "timestamp": "={{$now.toISOString()}}",
+          "metadata": {
+            "title": "={{$json.title}}",
+            "substackUrl": "={{$json.substack_url}}",
+            "sections": "={{$json.sections.length}}",
+            "type": "newsletter"
+          }
+        }
+      },
+      "id": "dashboardWebhook",
+      "name": "Send to Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1100,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "trigger": {
+      "main": [
+        [
+          {
+            "node": "gpt4o",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gpt4o": {
+      "main": [
+        [
+          {
+            "node": "parse_content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse_content": {
+      "main": [
+        [
+          {
+            "node": "substack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "substack": {
+      "main": [
+        [
+          {
+            "node": "log_newsletter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "log_newsletter": {
+      "main": [
+        [
+          {
+            "node": "dashboardWebhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "version": "2025.11.13",
+    "description": "Newsletter Substack - Genera y publica newsletters automáticas con monetización",
+    "credentials": [
+      "OpenAI-Diego",
+      "Substack-Diego",
+      "Google-Diego"
+    ],
+    "environment_variables": [
+      "GOOGLE_SHEET_ID",
+      "WEBHOOK_DASHBOARD_URL",
+      "WEBHOOK_SECRET"
+    ],
+    "earnings_per_execution": "$10 - $100 (per paid subscription)",
+    "execution_frequency": "Weekly"
+  }
+}

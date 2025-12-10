@@ -1,0 +1,241 @@
+{
+  "name": "05_NFT_Base_LazyMint_v2025",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "hours": 24
+            }
+          ]
+        },
+        "options": {
+          "timezone": "America/La_Paz"
+        }
+      },
+      "id": "trigger",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generar metadata para NFT\nconst nftTypes = ['AI Art', 'Digital Collectible', 'Generative Art', 'Pixel Art', 'Abstract'];\nconst randomType = nftTypes[Math.floor(Math.random() * nftTypes.length)];\n\nreturn [{\n  name: `${randomType} #${Math.floor(Math.random() * 10000)}`,\n  description: `Unique ${randomType.toLowerCase()} created with AI on Base Chain`,\n  type: randomType,\n  attributes: [\n    { trait_type: 'Rarity', value: ['Common', 'Uncommon', 'Rare', 'Epic'][Math.floor(Math.random() * 4)] },\n    { trait_type: 'Creator', value: 'Diego' },\n    { trait_type: 'Chain', value: 'Base' }\n  ]\n}];"
+      },
+      "id": "metadata_gen",
+      "name": "Generate NFT Metadata",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "generateImage",
+        "model": "stable-diffusion-3-5-large",
+        "prompt": "{{$json.type}} NFT art, unique, 4K, trending, digital art, collectible, 1024x1024",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "size": "1024x1024"
+      },
+      "id": "sd35",
+      "name": "Generate NFT Image",
+      "type": "n8n-nodes-base.stabilityAi",
+      "position": [
+        500,
+        200
+      ],
+      "credentials": {
+        "stabilityAiApi": "Stability-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "uploadToIPFS",
+        "file": "={{$json.data[0].url}}",
+        "metadata": "={{JSON.stringify($json)}}"
+      },
+      "id": "ipfs",
+      "name": "Upload to IPFS",
+      "type": "n8n-nodes-base.ipfs",
+      "position": [
+        700,
+        200
+      ],
+      "credentials": {
+        "ipfsApi": "IPFS-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "lazyMint",
+        "contractAddress": "{{$env.OPENSEA_CONTRACT_ADDRESS}}",
+        "tokenURI": "={{$json.ipfs_hash}}",
+        "name": "={{$json.name}}",
+        "description": "={{$json.description}}",
+        "image": "={{$json.data[0].url}}",
+        "attributes": "={{JSON.stringify($json.attributes)}}",
+        "chain": "base"
+      },
+      "id": "opensea",
+      "name": "OpenSea Lazy Mint",
+      "type": "n8n-nodes-base.openSea",
+      "position": [
+        900,
+        200
+      ],
+      "credentials": {
+        "openSeaApi": "OpenSea-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "{{$env.GOOGLE_SHEET_ID}}",
+        "range": "NFT!A:F",
+        "data": [
+          [
+            "={{$json.name}}",
+            "={{$json.type}}",
+            "={{$json.ipfs_hash}}",
+            "={{$json.opensea_url}}",
+            "={{$now.toISOString()}}",
+            "0"
+          ]
+        ]
+      },
+      "id": "log_nft",
+      "name": "Log to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        1100,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": "Google-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "url": "{{$env.WEBHOOK_DASHBOARD_URL}}/api/webhooks/n8n",
+        "httpMethod": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{$env.WEBHOOK_SECRET}}"
+        },
+        "body": {
+          "workflowId": "05_NFT_Base",
+          "status": "completed",
+          "earnings": 0,
+          "timestamp": "={{$now.toISOString()}}",
+          "metadata": {
+            "nftName": "={{$json.name}}",
+            "nftType": "={{$json.type}}",
+            "ipfsHash": "={{$json.ipfs_hash}}",
+            "openSeaUrl": "={{$json.opensea_url}}",
+            "chain": "base"
+          }
+        }
+      },
+      "id": "dashboardWebhook",
+      "name": "Send to Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1300,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "trigger": {
+      "main": [
+        [
+          {
+            "node": "metadata_gen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "metadata_gen": {
+      "main": [
+        [
+          {
+            "node": "sd35",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sd35": {
+      "main": [
+        [
+          {
+            "node": "ipfs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ipfs": {
+      "main": [
+        [
+          {
+            "node": "opensea",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "opensea": {
+      "main": [
+        [
+          {
+            "node": "log_nft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "log_nft": {
+      "main": [
+        [
+          {
+            "node": "dashboardWebhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "version": "2025.11.13",
+    "description": "NFT Base Chain - Crea y hace lazy minting de NFTs en OpenSea (Base Chain)",
+    "credentials": [
+      "Stability-Diego",
+      "IPFS-Diego",
+      "OpenSea-Diego",
+      "Google-Diego"
+    ],
+    "environment_variables": [
+      "OPENSEA_CONTRACT_ADDRESS",
+      "GOOGLE_SHEET_ID",
+      "WEBHOOK_DASHBOARD_URL",
+      "WEBHOOK_SECRET"
+    ],
+    "earnings_per_execution": "$5 - $50 (per sale)",
+    "execution_frequency": "Daily"
+  }
+}

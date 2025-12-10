@@ -1,0 +1,230 @@
+{
+  "name": "00_Master_Orchestrator_v2025",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "hours": 6
+            }
+          ]
+        },
+        "options": {
+          "timezone": "America/La_Paz"
+        }
+      },
+      "id": "trigger",
+      "name": "Schedule 6h",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "sheetId": "{{$env.GOOGLE_SHEET_ID}}",
+        "range": "Dashboard!A:F",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "id": "readDash",
+      "name": "Read Dashboard",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        300,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": "Google-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Auto-selecciona workflows IDLE para ejecutar\nconst maxDaily = 40;\nconst already = items.filter(i => i.json.today > 0).length;\nconst left = Math.max(0, maxDaily - already);\nconst selected = items.filter(i => i.json.status === 'idle').slice(0, left);\n\n// Log para auditoría\nconsole.log(`[Master] Selected ${selected.length} workflows out of ${items.length} available`);\n\nreturn selected;"
+      },
+      "id": "filterIdle",
+      "name": "Filter Idle Workflows",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        500,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "batch": {
+          "batchSize": 3,
+          "waitTime": 1
+        }
+      },
+      "id": "batch3",
+      "name": "Batch 3 Parallel",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        700,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "url": "{{$json.webhook_url}}",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{$env.WEBHOOK_SECRET}}"
+        },
+        "body": {
+          "workflowId": "={{$json.id}}",
+          "workflowName": "={{$json.name}}",
+          "type": "={{$json.type}}",
+          "timestamp": "={{$now.toISOString()}}"
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "webhookCall",
+      "name": "Trigger Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "{{$env.GOOGLE_SHEET_ID}}",
+        "range": "Log!A:E",
+        "data": [
+          [
+            "={{$json.name}}",
+            "={{$json.batchIndex}}",
+            "={{$now.toISOString()}}",
+            "TRIGGERED",
+            "OK"
+          ]
+        ]
+      },
+      "id": "logExec",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        1100,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": "Google-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "{{$env.GOOGLE_SHEET_ID}}",
+        "range": "Metrics!A:D",
+        "data": [
+          [
+            "={{$json.name}}",
+            "EXECUTION_TRIGGERED",
+            "={{$now.toISOString()}}",
+            "1"
+          ]
+        ]
+      },
+      "id": "recordMetric",
+      "name": "Record Metric",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        1300,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": "Google-Diego"
+      }
+    }
+  ],
+  "connections": {
+    "trigger": {
+      "main": [
+        [
+          {
+            "node": "readDash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "readDash": {
+      "main": [
+        [
+          {
+            "node": "filterIdle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "filterIdle": {
+      "main": [
+        [
+          {
+            "node": "batch3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "batch3": {
+      "main": [
+        [
+          {
+            "node": "webhookCall",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "webhookCall": {
+      "main": [
+        [
+          {
+            "node": "logExec",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "logExec": {
+      "main": [
+        [
+          {
+            "node": "recordMetric",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "version": "2025.11.13",
+    "description": "Master Orchestrator - Controla la ejecución de todos los workflows con límite de 40/día en lotes de 3",
+    "credentials": [
+      "Google-Diego"
+    ],
+    "environment_variables": [
+      "GOOGLE_SHEET_ID",
+      "WEBHOOK_SECRET"
+    ]
+  }
+}

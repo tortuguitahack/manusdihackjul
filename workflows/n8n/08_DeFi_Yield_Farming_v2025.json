@@ -1,0 +1,261 @@
+{
+  "name": "08_DeFi_Yield_Farming_v2025",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "hours": 4
+            }
+          ]
+        },
+        "options": {
+          "timezone": "America/La_Paz"
+        }
+      },
+      "id": "trigger",
+      "name": "Cada 4h",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.aave.com/v1/markets",
+        "httpMethod": "GET",
+        "headers": {
+          "Authorization": "Bearer {{$env.AAVE_API_KEY}}"
+        }
+      },
+      "id": "fetch_aave",
+      "name": "Fetch Aave APY",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.curve.fi/api/getPools",
+        "httpMethod": "GET"
+      },
+      "id": "fetch_curve",
+      "name": "Fetch Curve Pools",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        500,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Analizar y comparar yields\nconst aaveMarkets = items.find(i => i.json.source === 'aave')?.json.data || [];\nconst curvePools = items.find(i => i.json.source === 'curve')?.json.data || [];\n\n// Encontrar mejor oportunidad\nconst bestAave = aaveMarkets.sort((a, b) => b.supplyAPY - a.supplyAPY)[0];\nconst bestCurve = curvePools.sort((a, b) => b.apy - a.apy)[0];\n\nconst recommendation = bestAave?.supplyAPY > bestCurve?.apy ? \n  { platform: 'Aave', pool: bestAave.name, apy: bestAave.supplyAPY } :\n  { platform: 'Curve', pool: bestCurve.name, apy: bestCurve.apy };\n\nreturn [{\n  recommendation,\n  aaveMarkets: aaveMarkets.slice(0, 3),\n  curvePools: curvePools.slice(0, 3),\n  timestamp: new Date().toISOString()\n}];"
+      },
+      "id": "analyze",
+      "name": "Analyze Yields",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        700,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "deposit",
+        "token": "USDC",
+        "amount": "={{$env.DEPOSIT_AMOUNT}}",
+        "platform": "={{$json.recommendation.platform}}",
+        "pool": "={{$json.recommendation.pool}}",
+        "slippage": 0.5
+      },
+      "id": "deposit",
+      "name": "Deposit to Pool",
+      "type": "n8n-nodes-base.defi",
+      "position": [
+        900,
+        200
+      ],
+      "credentials": {
+        "defiWallet": "DeFi-Wallet-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calcular ganancias esperadas\nconst dailyYield = (parseFloat($env.DEPOSIT_AMOUNT) * ($json.recommendation.apy / 100)) / 365;\nconst monthlyYield = dailyYield * 30;\nconst yearlyYield = parseFloat($env.DEPOSIT_AMOUNT) * ($json.recommendation.apy / 100);\n\nreturn [{\n  ...items[0].json,\n  dailyYield: dailyYield.toFixed(2),\n  monthlyYield: monthlyYield.toFixed(2),\n  yearlyYield: yearlyYield.toFixed(2),\n  txHash: items[0].json.transaction_hash\n}];"
+      },
+      "id": "calc_yield",
+      "name": "Calculate Yield",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "{{$env.GOOGLE_SHEET_ID}}",
+        "range": "DeFi!A:G",
+        "data": [
+          [
+            "={{$json.recommendation.platform}}",
+            "={{$json.recommendation.pool}}",
+            "={{$json.recommendation.apy}}",
+            "={{$json.dailyYield}}",
+            "={{$json.monthlyYield}}",
+            "={{$json.txHash}}",
+            "={{$now.toISOString()}}"
+          ]
+        ]
+      },
+      "id": "log_defi",
+      "name": "Log to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        1300,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": "Google-Diego"
+      }
+    },
+    {
+      "parameters": {
+        "url": "{{$env.WEBHOOK_DASHBOARD_URL}}/api/webhooks/n8n",
+        "httpMethod": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{$env.WEBHOOK_SECRET}}"
+        },
+        "body": {
+          "workflowId": "08_DeFi_Yield_Farming",
+          "status": "completed",
+          "earnings": "={{parseFloat($json.dailyYield)}}",
+          "timestamp": "={{$now.toISOString()}}",
+          "metadata": {
+            "platform": "={{$json.recommendation.platform}}",
+            "pool": "={{$json.recommendation.pool}}",
+            "apy": "={{$json.recommendation.apy}}",
+            "dailyYield": "={{$json.dailyYield}}",
+            "monthlyYield": "={{$json.monthlyYield}}",
+            "yearlyYield": "={{$json.yearlyYield}}",
+            "txHash": "={{$json.txHash}}"
+          }
+        }
+      },
+      "id": "dashboardWebhook",
+      "name": "Send to Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1500,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "trigger": {
+      "main": [
+        [
+          {
+            "node": "fetch_aave",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "fetch_curve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "fetch_aave": {
+      "main": [
+        [
+          {
+            "node": "analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "fetch_curve": {
+      "main": [
+        [
+          {
+            "node": "analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "analyze": {
+      "main": [
+        [
+          {
+            "node": "deposit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "deposit": {
+      "main": [
+        [
+          {
+            "node": "calc_yield",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "calc_yield": {
+      "main": [
+        [
+          {
+            "node": "log_defi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "log_defi": {
+      "main": [
+        [
+          {
+            "node": "dashboardWebhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "version": "2025.11.13",
+    "description": "DeFi Yield Farming - Automatiza depósitos en protocolos DeFi con mejor APY",
+    "credentials": [
+      "DeFi-Wallet-Diego",
+      "Google-Diego"
+    ],
+    "environment_variables": [
+      "AAVE_API_KEY",
+      "DEPOSIT_AMOUNT",
+      "GOOGLE_SHEET_ID",
+      "WEBHOOK_DASHBOARD_URL",
+      "WEBHOOK_SECRET"
+    ],
+    "earnings_per_execution": "$5 - $50 (depending on APY and deposit)",
+    "execution_frequency": "Every 4 hours"
+  }
+}
